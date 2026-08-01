@@ -15,6 +15,7 @@ import {
   preguntarAlUsuario,
   marcarUsada,
 } from './preguntas.js';
+import { capturar } from './screenshots.js';
 
 // ─── Helpers DOM ─────────────────────────────────────────────────────────────
 
@@ -303,6 +304,7 @@ async function procesarRadioGroup(page, nombre, perfil) {
  */
 export async function rellenarFormulario(page, perfil) {
   console.log('[form] Analizando formulario...');
+  await capturar(page, 'form_inicio');
 
   try {
     // ── 1. Subir CV si hay campo de archivo ──────────────────────────
@@ -398,18 +400,22 @@ export async function rellenarFormulario(page, perfil) {
         if (await btn.count() > 0 && await btn.isVisible()) {
           const texto = (await btn.textContent())?.trim() || '';
           console.log(`[form] Clic en botón: "${texto}"`);
+          await capturar(page, 'form_antes_boton');
           await btn.click();
           await delay(2000, 3000);
+          await capturar(page, 'form_despues_boton');
           return true;
         }
       } catch { continue; }
     }
 
     console.log('[form] No se encontró botón de avance reconocible.');
+    await capturar(page, 'form_sin_boton_avance');
     return false;
 
   } catch (err) {
     console.error(`[form] Error: ${err.message}`);
+    await capturar(page, 'form_error');
     return false;
   }
 }

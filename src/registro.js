@@ -19,16 +19,20 @@ export function cargarRegistro() {
   }
 }
 
+/** Normaliza una URL quitando parámetros de tracking (query y fragmento). */
+function normalizarUrl(url) {
+  return url.split('?')[0].split('#')[0].replace(/\/$/, '');
+}
+
 /** Verifica si una URL ya fue postulada EXITOSAMENTE (no fallida). */
 export function yaPostulada(registro, url) {
-  // Normalizar URL quitando parámetros de tracking
-  const urlLimpia = url.split('?')[0].replace(/\/$/, '');
+  const urlLimpia = normalizarUrl(url);
   
   // Estados que se consideran "ya procesados" y no se reintentan
   const estadosFinales = ['ok', 'ya_postulado'];
   
   return registro.some(entry => {
-    const entryLimpia = entry.url.split('?')[0].replace(/\/$/, '');
+    const entryLimpia = normalizarUrl(entry.url);
     return entryLimpia === urlLimpia && estadosFinales.includes(entry.estado);
   });
 }

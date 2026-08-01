@@ -22,6 +22,7 @@ import { resolve, join } from 'node:path';
 import { stdin, stdout, exit } from 'node:process';
 import { abrirEdge, delay } from './src/browser.js';
 import { cargarRegistro, yaPostulada, registrarPostulacion, resumenRegistro } from './src/registro.js';
+import { capturar } from './src/screenshots.js';
 
 // ─── Colores de terminal (sin dependencias externas) ───
 const C = {
@@ -314,6 +315,7 @@ async function main() {
 
   } finally {
     // ── RESUMEN ──────────────────────────────────────────────────────
+    await capturar(page, '0_resumen_final');
     titulo('RESUMEN DE SESIÓN');
     ok(`Postulaciones exitosas:  ${stats.ok}`);
     info(`Ya postulado antes:      ${stats.ya_postulada}`);

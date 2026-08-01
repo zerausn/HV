@@ -8,18 +8,19 @@
 
 import { delay } from './browser.js';
 import { rellenarFormulario } from './formFiller.js';
+import { capturar } from './screenshots.js';
 
 const BASE_URL = 'https://co.computrabajo.com';
 
 /**
  * Construye la URL de búsqueda de Computrabajo con los filtros del config.
+ * Formato real (verificado 2026-08): https://co.computrabajo.com/empleos-de-<cargo>-en-<ciudad>
  * @param {object} busqueda - config.busqueda
  */
 function construirUrlBusqueda(busqueda) {
   const cargo = encodeURIComponent(busqueda.cargo || 'analista');
   const ciudad = encodeURIComponent(busqueda.ciudad || 'cali');
-  // Computrabajo filtra ciudad en la URL como parámetro l= y cargo como q=
-  return `${BASE_URL}/trabajo-de-${encodeURIComponent(busqueda.cargo || 'analista')}?l=${encodeURIComponent(busqueda.ciudad || 'Cali')}`;
+  return `${BASE_URL}/empleos-de-${cargo}-en-${ciudad}`;
 }
 
 /**
@@ -60,10 +61,11 @@ export async function buscarOfertas(page, config) {
 
   // Esperar que carguen las tarjetas de oferta
   try {
-    await page.waitForSelector('article.g_card, .offerListItem, article[data-regid]', { timeout: 10000 });
+    await page.waitForSelector('article a[href*="/oferta-de-trabajo-"], a.js-o-link[href*="/oferta-de-trabajo-"]', { timeout: 15000 });
   } catch {
     console.log('[computrabajo] AVISO: No se encontraron tarjetas de oferta. La estructura del DOM puede haber cambiado.');
     console.log('[computrabajo] URL actual:', page.url());
+    await capturar(page, 'busqueda_sin_resultados');
     return [];
   }
 
@@ -71,18 +73,18 @@ export async function buscarOfertas(page, config) {
   const urls = await page.evaluate((baseUrl) => {
     const links = new Set();
 
-    // Selector principal de Computrabajo (tarjetas de oferta)
+    // Selector verificado 2026-08: tarjetas <article> con enlaces .js-o-link
     const selectores = [
-      'article.g_card a[href*="/oferta-de-trabajo"]',
-      'article[data-regid] a[href*="/oferta-de-trabajo"]',
-      '.offerListItem a[href*="/oferta-de-trabajo"]',
-      'a[href*="/oferta-de-trabajo-de-"]',
+      'article a.js-o-link[href*="/oferta-de-trabajo-"]',
+      'article a[href*="/oferta-de-trabajo-"]',
+      'a.js-o-link[href*="/oferta-de-trabajo-"]',
+      'a[href*="/oferta-de-trabajo-"]',
     ];
 
     for (const sel of selectores) {
       document.querySelectorAll(sel).forEach(a => {
         const href = a.getAttribute('href');
-        if (href) {
+        if (href && !href.includes('/empresas/')) {
           const full = href.startsWith('http') ? href : baseUrl + href;
           links.add(full);
         }
@@ -110,6 +112,8 @@ export async function aplicarOferta(page, url, config) {
 
   console.log(`\n[computrabajo] → Navegando a: ${url}`);
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await delay(1500, 2500);
+  await capturar(page, '1_navegacion_oferta');
 
   // Esperar a que cargue el contenido dinámico (el botón de aplicar carga tarde)
   await Promise.race([
@@ -134,6 +138,7 @@ export async function aplicarOferta(page, url, config) {
   }
 
   console.log(`[computrabajo] Oferta: "${titulo}" — ${empresa}`);
+  await capturar(page, '2_oferta_detectada');
 
   // Verificar si ya estamos postulados
   const yaPostulado = await page.locator(
@@ -141,6 +146,14 @@ export async function aplicarOferta(page, url, config) {
   ).count();
   if (yaPostulado > 0) {
     console.log('[computrabajo] Ya estabas postulado a esta oferta.');
+    return { ok: false, titulo, empresa, motivo: 'ya_postulado' };
+  }
+
+  // Detectar el estado "Ya aplicaste a esta oferta" (texto visible)
+  const textoPaginaInicial = await page.evaluate(() => document.body.innerText);
+  if (/ya aplicaste|ya te has inscrito|ya est[aá]s postulado|ya postulado/i.test(textoPaginaInicial)) {
+    console.log('[computrabajo] La página indica que YA aplicaste a esta oferta.');
+    await capturar(page, '2b_ya_aplicada');
     return { ok: false, titulo, empresa, motivo: 'ya_postulado' };
   }
 
@@ -188,20 +201,26 @@ export async function aplicarOferta(page, url, config) {
 
   if (!aplicado) {
     console.log('[computrabajo] No se encontró botón de postulación.');
+    await capturar(page, '4_sin_boton_postular');
     return { ok: false, titulo, empresa, motivo: 'sin_boton' };
   }
+
+  await capturar(page, '3_click_aplicar');
 
   // Verificar si se requiere login
   if (page.url().includes('Account/Login') || page.url().includes('/login')) {
     console.log('[computrabajo] ATENCIÓN: Redirigió a login. La sesión puede haber expirado.');
+    await capturar(page, '5_redirigido_login');
     return { ok: false, titulo, empresa, motivo: 'requiere_login' };
   }
 
   // Intentar rellenar formulario si apareció uno
   const hayFormulario = await page.locator('form').count() > 0;
   if (hayFormulario) {
+    await capturar(page, '5_formulario_antes');
     await rellenarFormulario(page, config.perfil);
     await delay(minDelay, maxDelay);
+    await capturar(page, '6_formulario_despues');
   }
 
   // Confirmar éxito: buscar mensajes de confirmación
@@ -217,6 +236,7 @@ export async function aplicarOferta(page, url, config) {
   } else {
     console.log('[computrabajo] ⚠️  No se encontró confirmación explícita. Revisa el navegador.');
   }
+  await capturar(page, '7_resultado_final');
 
   return { ok: true, titulo, empresa };
 }
