@@ -1,13 +1,19 @@
 {
-  "name": "computrabajo-bot",
-  "version": "1.0.0",
+  "name": "hv-bot",
+  "version": "2.0.0",
   "type": "module",
-  "description": "",
+  "description": "Bot de postulación automática a empleo — Computrabajo, El Empleo, Magneto, LinkedIn",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js",
+    "buscar": "node index.js --buscar",
+    "buscar:computrabajo": "node index.js --buscar --computrabajo",
+    "buscar:linkedin": "node index.js --buscar --linkedin",
+    "buscar:magneto": "node index.js --buscar --magneto",
+    "buscar:elempleo": "node index.js --buscar --elempleo",
+    "solo-buscar": "node index.js --buscar --solo-buscar"
   },
-  "keywords": [],
+  "keywords": ["empleo", "bot", "automation", "playwright", "computrabajo"],
   "author": "",
   "license": "ISC",
   "dependencies": {

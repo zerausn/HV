@@ -1,3 +1,7 @@
 node_modules/
-.env
-*.log
+logs/
+aplicadas.json
+config.json
+preguntas.json
+ultima_sesion.json
+*.txt
