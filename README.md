@@ -1,6 +1,8 @@
-# HV — Bot de Postulación a Empleo
+# HV — Bot de Postulación a Empleo (Computrabajo)
 
-Automatiza la aplicación a ofertas de empleo en [Computrabajo Colombia](https://co.computrabajo.com) usando **Playwright** + **Microsoft Edge** con tu perfil real (conserva tu sesión iniciada).
+Automatiza la aplicación a ofertas de empleo en [Computrabajo Colombia](https://co.computrabajo.com) usando **Playwright** + **Microsoft Edge** con tu perfil real (conserva tu sesión iniciada y cookies).
+
+> ⚠️ **Privacidad**: `config.json`, `preguntas.json`, `aplicadas.json`, `ultima_sesion.json` y `bloque_original.txt` contienen datos personales (cédula, email, teléfono, respuestas de formularios) y están **excluidos del repositorio** vía `.gitignore`. Solo se publica el código y la documentación.
 
 ## ¿Qué hace exactamente?
 
@@ -44,6 +46,24 @@ El bot te presentará un menú interactivo:
 
 Al elegir **2 o 3**, pegás el bloque de URLs (una por línea) y escribís `FIN` para empezar.
 
+### Ejecución con entrada por FIFO (sin terminal interactiva)
+
+Para responder las preguntas desde otro proceso (p. ej. un agente de IA):
+
+```bash
+rm -f /tmp/hv_fifo /tmp/hv_bot.log
+mkfifo /tmp/hv_fifo
+setsid bash -c '(sleep 7200) > /tmp/hv_fifo & nohup node index.js < /tmp/hv_fifo > /tmp/hv_bot.log 2>&1 &'
+```
+
+Responder una pregunta pendiente:
+
+```bash
+printf 'Si\n' > /tmp/hv_fifo
+```
+
+> ⚠️ El FIFO se desincroniza si se envían respuestas antes de que aparezca la pregunta: verificar siempre el log antes de responder. Al finalizar, el bot queda esperando "Presiona Enter para cerrar Edge...", que es poco confiable por FIFO: matar con `kill -9 <pid>` y cerrar Edge.
+
 ## Configuración (`config.json`)
 
 ```json
@@ -61,8 +81,8 @@ Al elegir **2 o 3**, pegás el bloque de URLs (una por línea) y escribís `FIN`
   "busqueda": {
     "cargo": "analista",
     "ciudad": "cali",
-    "delay_min_ms": 1500,
-    "delay_max_ms": 3500
+    "delay_min_ms": 4000,
+    "delay_max_ms": 7000
   },
   "plataformas": {
     "computrabajo": true
@@ -80,28 +100,45 @@ Cuando el bot encuentra una pregunta que no puede responder automáticamente con
 
 Puedes editar este archivo manualmente para corregir respuestas guardadas.
 
+## Detección de bloqueo / oferta no disponible
+
+- **Bloqueo de sitio**: si la página devuelve "service is unavailable" / 503, el bot espera 60 segundos, captura `1b_bloqueo_temporal` y reintenta una vez.
+- **Oferta no disponible**: si el botón "Aplicar" no aparece, captura `2c_oferta_no_disponible` y sigue con la siguiente URL.
+
+## Ritmo humano (anti-detección)
+
+Los delays configurados (ver `config.json`) se aplican entre navegaciones, clics y campos:
+
+- Navegación entre ofertas: **4-7 segundos**
+- Entre campos de un formulario: **1.5-3 segundos**
+- Sin saltos de página: el bot usa `launchPersistentContext` de Playwright, así que tu perfil de Edge real y su sesión se conservan (mismo fingerprint).
+
 ## Estructura
 
 ```
 computrabajo-bot/
 ├── index.js              # Orquestador principal: menú, sesión, loop de postulaciones
-├── config.json           # Perfil del candidato y configuración del bot
-├── preguntas.json        # Caché de respuestas a preguntas de formularios
-├── aplicadas.json        # Historial de URLs ya postuladas (evita duplicados)
-├── ultima_sesion.json    # URLs de la última sesión (para continuar donde quedó)
+├── config.json           # Perfil del candidato y configuración del bot (NO subido)
+├── preguntas.json        # Caché de respuestas a preguntas de formularios (NO subido)
+├── aplicadas.json        # Historial de URLs ya postuladas (NO subido)
+├── ultima_sesion.json    # URLs de la última sesión (NO subido)
+├── bloque_original.txt   # Bloque original de URLs de ofertas (NO subido)
 ├── package.json
 ├── src/
 │   ├── computrabajo.js   # Lógica DOM específica de Computrabajo (navegar, clicar Aplicar)
 │   ├── formFiller.js     # Análisis y relleno de formularios de postulación
 │   ├── browser.js        # Inicialización de Playwright + Edge con perfil real
-│   └── preguntas.js      # Motor de caché: leer, guardar y buscar respuestas
+│   ├── preguntas.js      # Motor de caché: leer, guardar y buscar respuestas
+│   └── screenshots.js    # Capturas de pantalla por paso (carpeta screenshots/)
 └── logs/
-    └── YYYY-MM-DD.log    # Log diario de postulaciones
+    └── YYYY-MM-DD.log    # Log diario de postulaciones (NO subido)
 ```
 
 ## Notas técnicas
 
 - El botón "Aplicar" de Computrabajo es un `<span>` con atributo `[attach-cv-button-text]`, no un `<button>` estándar. El bot lo detecta con selectores específicos.
 - El bot usa `launchPersistentContext` de Playwright para reutilizar el perfil de Edge.
-- Cada respuesta en formulario espera entre **4 y 7 segundos** para parecer humano.
+- **Grupos de radios** (`procesarRadioGroup`): el label se extrae del ancestro común del grupo restando los textos de las opciones (antes se subía hasta el contenedor y devolvía "Ver oferta completa" para todo, generando un bucle). El clic se hace con `input.check({force: true})` por índice de opción, que es compatible con el DOM real de Computrabajo.
+- Las URLs de búsqueda siguen el formato real (verificado 2026-08): `https://co.computrabajo.com/empleos-de-<cargo>-en-<ciudad>`.
 - En modo `headless: false` puedes ver todo lo que hace el bot en tiempo real.
+- Screenshots por paso en `screenshots/YYYY-MM-DD/` (no versionados en git).

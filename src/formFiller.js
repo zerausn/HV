@@ -130,7 +130,9 @@ async function procesarCampoTexto(page, campo, perfil) {
     respuestaDirecta = String(perfil.telefono);
 
   // ── Nombre ───────────────────────────────────────────────────────
-  else if (/\bnombre\b/.test(labelNorm) && !/empresa|razon|social|compan/.test(labelNorm) && perfil.nombre)
+  // OJO: "Indique nombre" dentro de "formación académica / título / carrera"
+  // se refiere al NOMBRE DEL TÍTULO, no al nombre de la persona.
+  else if (/\bnombre\b/.test(labelNorm) && !/empresa|razon|social|compan|formac|academ|titulo|carrera|educ/.test(labelNorm) && perfil.nombre)
     respuestaDirecta = perfil.nombre;
 
   // ── Email / Correo ───────────────────────────────────────────────
@@ -148,7 +150,7 @@ async function procesarCampoTexto(page, campo, perfil) {
 
   if (respuestaDirecta) {
     await campo.fill(respuestaDirecta);
-    await delay(200, 500);
+    await delay(1500, 3000);
     return;
   }
 
@@ -166,7 +168,7 @@ async function procesarCampoTexto(page, campo, perfil) {
   const respuesta = await preguntarAlUsuario(label, [], 'text');
   if (respuesta) {
     await campo.fill(respuesta);
-    await delay(200, 400);
+    await delay(1500, 3000);
   }
 }
 
@@ -207,7 +209,7 @@ async function procesarSelect(page, campo, perfil) {
       const match = opciones.find(o => o.toLowerCase().includes(respuesta.toLowerCase()));
       if (match) await campo.selectOption({ label: match });
     }
-    await delay(200, 400);
+    await delay(1500, 3000);
   }
 }
 
@@ -222,44 +224,34 @@ async function procesarRadioGroup(page, nombre, perfil) {
   if (yaSeleccionado) return;
 
   // Buscar label del grupo (la pregunta en sí)
+  // Estrategia: ancestro común del grupo, restar el texto de las opciones → queda la pregunta
   const label = await page.evaluate(n => {
-    const firstInput = document.querySelector(`input[type="radio"][name="${n}"]`);
-    if (!firstInput) return n;
-    
-    // Subir en el DOM buscando al ancestro más cercano que contenga la pregunta
-    let current = firstInput.closest('.field_radio_box, .field_radio, .group, .box_border') || firstInput.parentElement;
-    
-    while (current && current.tagName !== 'BODY') {
-      // 1. Revisar los hermanos anteriores inmediatos
-      let prev = current.previousElementSibling;
-      while (prev) {
-        const text = prev.innerText ? prev.innerText.trim() : prev.textContent?.trim();
-        const isOption = prev.querySelector('input') || prev.closest('label');
-        const isGenericHeader = /preguntas de selecci[oó]n|killerquestions/i.test(text);
-        
-        if (text && text.length > 5 && !isOption && !isGenericHeader) {
-          return text;
-        }
-        prev = prev.previousElementSibling;
-      }
+    const inputs = [...document.querySelectorAll(`input[type="radio"][name="${n}"], input[type="checkbox"][name="${n}"]`)];
+    if (inputs.length === 0) return n;
 
-      // 2. Revisar si el contenedor actual tiene un título/párrafo como primer hijo
-      const firstChild = current.firstElementChild;
-      if (firstChild && ['P', 'LEGEND', 'H3', 'H4', 'LABEL', 'DIV'].includes(firstChild.tagName)) {
-        const text = firstChild.innerText ? firstChild.innerText.trim() : '';
-        const isOption = firstChild.querySelector('input') || firstChild.closest('label');
-        const isGenericHeader = /preguntas de selecci[oó]n|killerquestions/i.test(text);
-        
-        // Exigir que sea un texto sustancial y que no sea el mismo contenedor en el que estamos
-        if (text.length > 5 && text.length < 500 && !isOption && !isGenericHeader && firstChild !== firstInput.closest('div')) {
-          // Si el texto parece una pregunta
-          return text;
-        }
-      }
+    // Texto de las opciones (para restarlo del contenedor)
+    const textosOpciones = inputs.map(inp => {
+      const lbl = inp.closest('label') || inp.parentElement;
+      return lbl ? (lbl.innerText || lbl.textContent || '').trim() : '';
+    }).filter(t => t.length > 0);
 
+    // Ancestro común mínimo del grupo
+    let common = inputs[0].parentElement;
+    while (common && !inputs.every(inp => common.contains(inp))) {
+      common = common.parentElement;
+    }
+
+    // Subir hasta 4 niveles: restar opciones del texto del contenedor → pregunta
+    let current = common;
+    for (let nivel = 0; current && current.tagName !== 'BODY' && nivel < 4; nivel++) {
+      let t = (current.innerText || current.textContent || '').trim();
+      for (const op of textosOpciones) {
+        if (op.length > 1) t = t.replace(op, '');
+      }
+      t = t.replace(/\s+/g, ' ').trim();
+      if (t.length > 5 && t.length < 400) return t;
       current = current.parentElement;
     }
-    
     return n;
   }, nombre);
 
@@ -268,12 +260,25 @@ async function procesarRadioGroup(page, nombre, perfil) {
   if (cached) {
     console.log(`\x1b[90m[form] Caché radio: "${label.substring(0, 50)}" → "${cached.respuesta}"\x1b[0m`);
     try {
-      await page.locator(`input[type="radio"][name="${nombre}"] + label:has-text("${cached.respuesta}")`).click();
+      // Marcar el input directamente (funciona aunque el label no sea adyacente)
+      let idx = opciones.findIndex(o => o.toLowerCase().includes(cached.respuesta.toLowerCase()));
+      if (idx < 0) idx = opciones.findIndex(o => cached.respuesta.toLowerCase().includes(o.toLowerCase()));
+      if (idx >= 0) {
+        await page.locator(
+          `input[type="radio"][name="${nombre}"], input[type="checkbox"][name="${nombre}"]`
+        ).nth(idx).check({ force: true });
+      } else {
+        const lbl = page.locator(`label:has-text("${cached.respuesta}")`).first();
+        await lbl.click({ force: true });
+      }
     } catch {
-      // Buscar por valor parcial
+      // Fallback: buscar por valor parcial
       const match = opciones.find(o => o.toLowerCase().includes(cached.respuesta.toLowerCase()));
       if (match) {
-        await page.locator(`input[type="radio"][value="${match}"], label:has-text("${match}")`).first().click();
+        const idx = opciones.indexOf(match);
+        await page.locator(
+          `input[type="radio"][name="${nombre}"], input[type="checkbox"][name="${nombre}"]`
+        ).nth(idx).check({ force: true });
       }
     }
     marcarUsada(cached.entrada);
@@ -285,10 +290,22 @@ async function procesarRadioGroup(page, nombre, perfil) {
   const respuesta = await preguntarAlUsuario(label, opciones, 'radio');
   if (respuesta) {
     try {
-      const match = opciones.find(o => o.toLowerCase().includes(respuesta.toLowerCase())) || respuesta;
-      await page.locator(`label:has-text("${match}")`).first().click();
+      const idx = opciones.findIndex(o => o.toLowerCase().includes(respuesta.toLowerCase()));
+      if (idx >= 0) {
+        await page.locator(
+          `input[type="radio"][name="${nombre}"], input[type="checkbox"][name="${nombre}"]`
+        ).nth(idx).check({ force: true });
+      } else {
+        const match = opciones.find(o => o.toLowerCase().includes(respuesta.toLowerCase()));
+        if (match) {
+          const i = opciones.indexOf(match);
+          await page.locator(
+            `input[type="radio"][name="${nombre}"], input[type="checkbox"][name="${nombre}"]`
+          ).nth(i).check({ force: true });
+        }
+      }
     } catch { /* ok */ }
-    await delay(200, 400);
+    await delay(1500, 3000);
   }
 }
 

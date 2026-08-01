@@ -56,7 +56,7 @@ export async function buscarOfertas(page, config) {
   console.log(`[computrabajo] URL: ${url}`);
 
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await delay(2000, 3000);
+  await delay(4000, 7000);
   await aceptarCookies(page);
 
   // Esperar que carguen las tarjetas de oferta
@@ -112,16 +112,31 @@ export async function aplicarOferta(page, url, config) {
 
   console.log(`\n[computrabajo] → Navegando a: ${url}`);
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await delay(1500, 2500);
+  await delay(4000, 7000);
   await capturar(page, '1_navegacion_oferta');
+
+  // DETECTAR BLOQUEO TEMPORAL del sitio ("The service is unavailable", 503, etc.)
+  const textoBloqueo = await page.evaluate(() => document.body.innerText.substring(0, 300)).catch(() => '');
+  if (/service is unavailable|unavailable|no disponible temporalmente|503/i.test(textoBloqueo) && !page.url().includes('/oferta-de-trabajo-')) {
+    console.log('[computrabajo] ⚠️  El sitio está bloqueando temporalmente (service unavailable).');
+    console.log('[computrabajo] Esperando 60 segundos antes de reintentar...');
+    await capturar(page, '1b_bloqueo_temporal');
+    await page.waitForTimeout(60000);
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await delay(4000, 7000);
+    await capturar(page, '1c_reintento');
+  }
 
   // Esperar a que cargue el contenido dinámico (el botón de aplicar carga tarde)
   await Promise.race([
     page.waitForSelector('[attach-cv-button-text], a:has-text("Inscribirme"), button:has-text("Aplicar")', { timeout: 8000 }),
-    delay(4000, 5000), // máximo 5s de espera si no aparece
+    delay(4000, 7000), // espera humana mientras carga
   ]).catch(() => {}); // no fallar si no aparece
 
   await aceptarCookies(page);
+
+  // Ritmo humano: pausa antes de extraer el contenido
+  await delay(4000, 7000);
 
   // Extraer título y empresa — usar selectores específicos de oferta
   let titulo = '';
@@ -163,6 +178,10 @@ export async function aplicarOferta(page, url, config) {
 
   if (!esPaginaOfertaUrl || titulo === 'Sin título') {
     console.log(`[computrabajo] La oferta ya no está disponible o expiró (sin título).`);
+    console.log(`[computrabajo] DEBUG: url_original=${url.split('#')[0].split('?')[0].slice(0, 80)}`);
+    console.log(`[computrabajo] DEBUG: url_actual=${urlActual.slice(0, 120)}`);
+    console.log(`[computrabajo] DEBUG: esPaginaOfertaUrl=${esPaginaOfertaUrl}, titulo="${titulo}"`);
+    await capturar(page, '2c_oferta_no_disponible');
     return { ok: false, titulo, empresa, motivo: 'oferta_no_disponible' };
   }
 
@@ -190,7 +209,7 @@ export async function aplicarOferta(page, url, config) {
       if (await btn.count() > 0 && await btn.isVisible()) {
         console.log(`[computrabajo] Clic en botón: "${await btn.textContent()}"`);
         await btn.click();
-        await delay(2500, 4000);
+        await delay(4000, 7000);
         aplicado = true;
         break;
       }
